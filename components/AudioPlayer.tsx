@@ -93,6 +93,7 @@ const AudioPlayer: React.FC<AudioPlayerProps> = ({ base64Audio, onFinished }) =>
       <button
         onClick={isPlaying ? stopAudio : playAudio}
         className="w-12 h-12 flex items-center justify-center bg-indigo-500 hover:bg-indigo-400 rounded-full text-white shadow-lg active:scale-95 transition-all"
+        title={isPlaying ? "Stop audio" : "Play audio"}
       >
         {isPlaying ? (
           <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>

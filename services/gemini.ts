@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
 import { BANGLA_SYSTEM_PROMPT, SHRINKER_SYSTEM_PROMPT, RESEARCH_SYSTEM_PROMPT, TONE_PROMPTS, CHAT_SYSTEM_PROMPT, SOCIAL_SYSTEM_PROMPT } from "../constants";
-import { Source, SummaryData, ShrinkResult, ResearchResult, Tone, ChatMessage, SocialPosts } from "../types";
+import { Source, SummaryData, ShrinkResult, ResearchResult, Tone, ChatMessage, SocialPosts, NarrativeData } from "../types";
 
 const getAI = () => {
   if (!process.env.API_KEY) {
@@ -32,10 +32,11 @@ export const generateSummary = async (content: string, tone: Tone, imageBase64?:
   
   const response = await ai.models.generateContent({
     model: 'gemini-3-pro-preview',
-    contents: buildContents(`Please analyze and summarize the following content: ${content}`, imageBase64),
+    contents: buildContents(`Please analyze and summarize the following content. If it is a URL (like YouTube), you MUST use Google Search to retrieve and understand the video/page context: ${content}`, imageBase64),
     config: {
       // Structure: Tone first, then System Rules, then Strict JSON requirement
-      systemInstruction: `${toneInstruction}\n${BANGLA_SYSTEM_PROMPT}\nProvide a structured summary in JSON.`,
+      systemInstruction: `${toneInstruction}\n${BANGLA_SYSTEM_PROMPT}\nProvide a structured summary in JSON. Include 3-5 related topics for further research. Also identify 3-5 potential downsides, risks, or negative aspects of the content.`,
+      tools: [{ googleSearch: {} }], // Enable search for URL analysis
       responseMimeType: 'application/json',
       responseSchema: {
         type: Type.OBJECT,
@@ -44,10 +45,13 @@ export const generateSummary = async (content: string, tone: Tone, imageBase64?:
           bigIdeaBn: { type: Type.STRING, description: "Core message in Bangla." },
           takeawaysEn: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Key points in English." },
           takeawaysBn: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Key points in Bangla." },
+          negativePointsEn: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Potential downsides, risks, or negative aspects in English." },
+          negativePointsBn: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Potential downsides, risks, or negative aspects in Bangla." },
           actionItemsEn: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Action steps in English." },
-          actionItemsBn: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Action steps in Bangla." }
+          actionItemsBn: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Action steps in Bangla." },
+          relatedTopics: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3-5 related topics or follow-up questions." }
         },
-        required: ['bigIdeaEn', 'bigIdeaBn', 'takeawaysEn', 'takeawaysBn', 'actionItemsEn', 'actionItemsBn']
+        required: ['bigIdeaEn', 'bigIdeaBn', 'takeawaysEn', 'takeawaysBn', 'negativePointsEn', 'negativePointsBn', 'actionItemsEn', 'actionItemsBn']
       }
     }
   });
@@ -74,15 +78,39 @@ export const shrinkContent = async (text: string, tone: Tone, imageBase64?: stri
     model: 'gemini-3-flash-preview',
     contents: buildContents(`Content to compress: ${text}`, imageBase64),
     config: {
-      systemInstruction: `${toneInstruction}\n${SHRINKER_SYSTEM_PROMPT}\nReturn JSON.`,
+      systemInstruction: `${toneInstruction}\n${SHRINKER_SYSTEM_PROMPT}\nIdentify 3-5 negative points or risks. Return JSON.`,
       responseMimeType: 'application/json',
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          textEn: { type: Type.STRING, description: "Summary in English" },
-          textBn: { type: Type.STRING, description: "Summary in Bangla" }
+          tlDrEn: { type: Type.STRING, description: "One sentence TL;DR in English" },
+          tlDrBn: { type: Type.STRING, description: "One sentence TL;DR in Bangla" },
+          sentiment: { type: Type.STRING, enum: ['Positive', 'Negative', 'Neutral', 'Urgent', 'Salesy'] },
+          keyDates: { type: Type.ARRAY, items: { type: Type.STRING } },
+          keyFigures: { type: Type.ARRAY, items: { type: Type.STRING } },
+          keyPeople: { type: Type.ARRAY, items: { type: Type.STRING } },
+          textEn: { type: Type.STRING, description: "Executive summary in English" },
+          textBn: { type: Type.STRING, description: "Executive summary in Bangla" },
+          talkingPoints: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Smart things to say in a meeting" },
+          negativePointsEn: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Potential downsides, risks, or negative aspects in English." },
+          negativePointsBn: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Potential downsides, risks, or negative aspects in Bangla." },
+          actionItemsEn: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 actionable next steps in English" },
+          actionItemsBn: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 actionable next steps in Bangla" },
+          counterArgument: { type: Type.STRING, description: "Devil's advocate perspective" },
+          faq: { 
+            type: Type.ARRAY, 
+            items: { 
+              type: Type.OBJECT, 
+              properties: { 
+                 question: { type: Type.STRING },
+                 answer: { type: Type.STRING }
+              },
+              required: ['question', 'answer']
+            },
+            description: "Anticipated Q&A"
+          }
         },
-        required: ['textEn', 'textBn']
+        required: ['tlDrEn', 'tlDrBn', 'sentiment', 'textEn', 'textBn', 'talkingPoints', 'negativePointsEn', 'negativePointsBn', 'actionItemsEn', 'actionItemsBn', 'counterArgument', 'faq']
       }
     }
   });
@@ -94,7 +122,23 @@ export const shrinkContent = async (text: string, tone: Tone, imageBase64?: stri
     }
     return JSON.parse(cleanText) as ShrinkResult;
   } catch (e) {
-     return { textEn: response.text || '', textBn: '' };
+    // Fallback if parsing fails, though with schema mode this is rare
+    console.error("Shrink Parse Error", e);
+    return { 
+        tlDrEn: "Analysis failed", 
+        tlDrBn: "Analysis failed", 
+        sentiment: "Neutral",
+        keyDates: [], keyFigures: [], keyPeople: [],
+        textEn: response.text || '', 
+        textBn: '',
+        talkingPoints: [],
+        negativePointsEn: [],
+        negativePointsBn: [],
+        actionItemsEn: [],
+        actionItemsBn: [],
+        counterArgument: "",
+        faq: []
+    };
   }
 };
 
@@ -113,32 +157,70 @@ export const researchTopic = async (topic: string, tone: Tone, imageBase64?: str
   });
 
   const fullText = response.text || '';
-  const separator = '---BANGLA TRANSLATION---';
-  const parts = fullText.split(separator);
+  
+  // Parse Sections
+  const parts1 = fullText.split('---BANGLA TRANSLATION---');
+  let textEn = parts1[0] || '';
+  let remainder = parts1[1] || '';
 
-  let textEn = parts[0] || '';
-  let textBn = parts[1] || 'Translation not generated.';
+  const parts2 = remainder.split('---RELATED TOPICS---');
+  let textBn = parts2[0] || 'Translation not generated.';
+  let topicsRaw = parts2[1] || '';
 
+  // cleanup text
   textEn = textEn.replace('PART 1: ENGLISH ANALYSIS', '').trim();
   textBn = textBn.replace('PART 2: BANGLA TRANSLATION', '').trim();
 
+  // Parse Related Topics
+  const relatedTopics = topicsRaw
+    .replace('PART 3: RELATED TOPICS', '')
+    .split('\n')
+    .map(t => t.replace(/^-\s*/, '').trim())
+    .filter(t => t.length > 0)
+    .slice(0, 5);
+
   const sources: Source[] = [];
   const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
+  const supports = response.candidates?.[0]?.groundingMetadata?.groundingSupports;
+
   if (chunks) {
-    chunks.forEach(chunk => {
+    // 1. Initialize sources from chunks
+    chunks.forEach((chunk, index) => {
       if (chunk.web) {
-        sources.push({
+        sources[index] = {
           title: chunk.web.title || 'Source',
-          uri: chunk.web.uri || '#'
-        });
+          uri: chunk.web.uri || '#',
+          usedContent: [] // Initialize array for snippets
+        };
       }
     });
+
+    // 2. Map generated segments (supports) to specific sources
+    if (supports) {
+      supports.forEach(support => {
+        const segmentText = support.segment?.text;
+        if (segmentText && support.groundingChunkIndices) {
+          support.groundingChunkIndices.forEach(chunkIndex => {
+            if (sources[chunkIndex]) {
+              // Avoid exact duplicates if the model cites the same sentence multiple times
+              if (!sources[chunkIndex].usedContent?.includes(segmentText.trim())) {
+                 sources[chunkIndex].usedContent?.push(segmentText.trim());
+              }
+            }
+          });
+        }
+      });
+    }
   }
+
+  // Filter out empty slots and flatten
+  const validSources = sources.filter(s => s);
 
   return {
     textEn,
     textBn,
-    sources
+    sources: validSources,
+    relatedTopics
   };
 };
 
@@ -203,9 +285,10 @@ export const generateSocials = async (context: string, tone: Tone): Promise<Soci
         properties: {
           linkedin: { type: Type.STRING },
           twitter: { type: Type.STRING },
-          instagram: { type: Type.STRING }
+          instagram: { type: Type.STRING },
+          facebook: { type: Type.STRING }
         },
-        required: ['linkedin', 'twitter', 'instagram']
+        required: ['linkedin', 'twitter', 'instagram', 'facebook']
       }
     }
   });
@@ -218,5 +301,38 @@ export const generateSocials = async (context: string, tone: Tone): Promise<Soci
     return JSON.parse(cleanText) as SocialPosts;
   } catch (e) {
     throw new Error("Failed to generate socials.");
+  }
+};
+
+export const generateNarrative = async (content: string, tone: Tone, imageBase64?: string): Promise<NarrativeData> => {
+  const ai = getAI();
+  const toneInstruction = TONE_PROMPTS[tone];
+
+  const response = await ai.models.generateContent({
+    model: 'gemini-3-pro-preview', // Upgraded to Pro for Search capabilities
+    contents: buildContents(`Write a detailed, comprehensive narrative or transcript-style account of this content. If it is a URL (like YouTube), use Google Search to get the full context: ${content}`, imageBase64),
+    config: {
+      systemInstruction: `${toneInstruction}\n${BANGLA_SYSTEM_PROMPT}\nOutput as a JSON object with 'textEn' and 'textBn'. Format as a single coherent paragraph for each.`,
+      tools: [{ googleSearch: {} }], // Enable search
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          textEn: { type: Type.STRING, description: "Detailed narrative/transcript in English" },
+          textBn: { type: Type.STRING, description: "Detailed narrative/transcript in Bangla" }
+        },
+        required: ['textEn', 'textBn']
+      }
+    }
+  });
+
+  try {
+    let cleanText = (response.text || '{}').trim();
+    if (cleanText.startsWith('```')) {
+      cleanText = cleanText.replace(/^```(json)?/, '').replace(/```$/, '').trim();
+    }
+    return JSON.parse(cleanText) as NarrativeData;
+  } catch (e) {
+    throw new Error("Failed to generate narrative.");
   }
 };

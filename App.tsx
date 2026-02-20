@@ -1,70 +1,182 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { ToolType, SummaryData, ShrinkResult, ResearchResult, Tone, ChatMessage, SocialPosts, AppTheme } from './types';
-import { generateSummary, shrinkContent, researchTopic, askGenie, generateSpeech, generateSocials } from './services/gemini';
+import { ToolType, SummaryData, ShrinkResult, ResearchResult, Tone, ChatMessage, SocialPosts, AppTheme, NarrativeData, Source } from './types';
+import { generateSummary, shrinkContent, researchTopic, askGenie, generateSpeech, generateSocials, generateNarrative } from './services/gemini';
+import { enhanceImage } from './services/imageProcessing';
 import AudioPlayer from './components/AudioPlayer';
+
+// --- CUSTOM LOGO COMPONENT ---
+const LazyGenieLogo = () => (
+  <svg viewBox="0 0 100 100" className="w-full h-full p-1.5" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <title>Lazy Genie Logo</title>
+    {/* Lamp Body */}
+    <path d="M20 80C20 88 30 92 45 92C60 92 70 88 70 80C70 76 68 72 60 70L30 70C22 72 20 76 20 80Z" fill="#F59E0B" stroke="#B45309" strokeWidth="2"/>
+    <path d="M70 75C80 70 85 65 85 65" stroke="#B45309" strokeWidth="3" strokeLinecap="round"/>
+    <path d="M20 80H15" stroke="#B45309" strokeWidth="3" strokeLinecap="round"/>
+
+    {/* Smoke/Genie Body connecting to lamp */}
+    <path d="M45 70C45 60 35 55 45 45C55 35 55 30 55 30" stroke="#A5B4FC" strokeWidth="8" strokeLinecap="round" opacity="0.7" />
+
+    {/* Genie Head */}
+    <circle cx="55" cy="28" r="16" fill="#6366F1" />
+
+    {/* Nightcap */}
+    <path d="M42 22C42 22 45 8 55 8C65 8 70 20 70 20" fill="#4338CA" />
+    <circle cx="70" cy="20" r="3" fill="#FCD34D" />
+
+    {/* Sleepy Face */}
+    {/* Left Eye */}
+    <path d="M49 28L53 28" stroke="white" strokeWidth="2" strokeLinecap="round" />
+    {/* Right Eye */}
+    <path d="M59 28L63 28" stroke="white" strokeWidth="2" strokeLinecap="round" />
+    {/* Mouth (Yawning/Open) */}
+    <circle cx="56" cy="34" r="2.5" fill="#BFDBFE" />
+
+    {/* Zzz Floating */}
+    <path d="M75 35L79 35L75 39L79 39" stroke="#818CF8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M82 28L85 28L82 31L85 31" stroke="#818CF8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+  </svg>
+);
 
 // --- THEME CONFIGURATION ---
 const THEMES: Record<AppTheme, any> = {
-  light: {
-    bg: 'bg-slate-50',
-    text: 'text-slate-800',
-    headerBg: 'bg-white/90',
-    headerBorder: 'border-slate-200',
-    cardBg: 'bg-white',
-    cardBorder: 'border-slate-200',
-    cardHeaderBg: 'bg-slate-50',
-    cardDivider: 'border-slate-100',
-    secondaryBg: 'bg-slate-50/50',
-    subText: 'text-slate-500',
-    buttonBg: 'bg-slate-100',
-    buttonHover: 'hover:bg-slate-200',
-    buttonText: 'text-slate-500',
-    inputBg: 'bg-white',
-    inputBorder: 'border-slate-200',
-    accentColor: 'indigo',
-    navBg: 'bg-white',
-    navBorder: 'border-slate-200',
+  light: { // "Sage"
+    label: 'Sage',
+    bg: 'bg-[#e7ece9]', // Soft sage background
+    text: 'text-[#2a363b]', // Dark charcoal/navyish
+    headerBg: 'bg-[#d8e2dc]/90',
+    headerBorder: 'border-[#c1d3c9]',
+    cardBg: 'bg-[#ffffff]',
+    cardBorder: 'border-[#dbebe2]',
+    cardHeaderBg: 'bg-[#f0f5f2]',
+    cardDivider: 'border-[#e8f0eb]',
+    secondaryBg: 'bg-[#f4f8f6]',
+    subText: 'text-[#6b7c75]',
+    buttonBg: 'bg-[#d8e2dc]',
+    buttonHover: 'hover:bg-[#c1d3c9]',
+    buttonText: 'text-[#4a5d55]',
+    inputBg: 'bg-[#ffffff]',
+    inputBorder: 'border-[#dbebe2]',
+    accentColor: 'emerald',
+    navBg: 'bg-[#ffffff]',
+    navBorder: 'border-[#dbebe2]',
+    activeNav: 'bg-[#8da399] text-white shadow-md shadow-[#8da399]/40',
+    inactiveNav: 'text-[#6b7c75] hover:bg-[#f0f5f2]',
   },
-  dark: {
-    bg: 'bg-slate-950',
-    text: 'text-slate-200',
-    headerBg: 'bg-slate-900/90',
-    headerBorder: 'border-slate-800',
-    cardBg: 'bg-slate-900',
-    cardBorder: 'border-slate-800',
-    cardHeaderBg: 'bg-slate-800/50',
-    cardDivider: 'border-slate-800',
-    secondaryBg: 'bg-slate-800/30',
-    subText: 'text-slate-400',
-    buttonBg: 'bg-slate-800',
-    buttonHover: 'hover:bg-slate-700',
-    buttonText: 'text-slate-400',
-    inputBg: 'bg-slate-900',
-    inputBorder: 'border-slate-800',
-    accentColor: 'indigo',
-    navBg: 'bg-slate-900',
-    navBorder: 'border-slate-800',
+  dark: { // "Navy"
+    label: 'Navy',
+    bg: 'bg-[#1e2d4c]', // Deep matte blue
+    text: 'text-[#e2e8f0]',
+    headerBg: 'bg-[#16223a]/90',
+    headerBorder: 'border-[#2d3f63]',
+    cardBg: 'bg-[#253659]',
+    cardBorder: 'border-[#33466e]',
+    cardHeaderBg: 'bg-[#2d3f63]/50',
+    cardDivider: 'border-[#33466e]',
+    secondaryBg: 'bg-[#2d3f63]/30',
+    subText: 'text-[#94a3b8]',
+    buttonBg: 'bg-[#33466e]',
+    buttonHover: 'hover:bg-[#405685]',
+    buttonText: 'text-[#cbd5e1]',
+    inputBg: 'bg-[#1e2d4c]',
+    inputBorder: 'border-[#33466e]',
+    accentColor: 'blue',
+    navBg: 'bg-[#1e2d4c]',
+    navBorder: 'border-[#2d3f63]',
+    activeNav: 'bg-[#4f85e6] text-white shadow-md shadow-blue-900',
+    inactiveNav: 'text-[#94a3b8] hover:bg-[#2d3f63]',
   },
-  paper: {
-    bg: 'bg-[#f7f5e8]', // Warm beige
-    text: 'text-[#5c5548]',
-    headerBg: 'bg-[#efede0]/90',
-    headerBorder: 'border-[#e0dcc5]',
-    cardBg: 'bg-[#fffdf5]',
-    cardBorder: 'border-[#e6e2d1]',
-    cardHeaderBg: 'bg-[#efede0]',
-    cardDivider: 'border-[#f0ece1]',
-    secondaryBg: 'bg-[#f4f1e4]',
-    subText: 'text-[#8a8475]',
-    buttonBg: 'bg-[#efede0]',
-    buttonHover: 'hover:bg-[#e0dcc5]',
-    buttonText: 'text-[#8a8475]',
-    inputBg: 'bg-[#fffdf5]',
-    inputBorder: 'border-[#e6e2d1]',
-    accentColor: 'orange', // Matches paper feel
-    navBg: 'bg-[#fffdf5]',
-    navBorder: 'border-[#e6e2d1]',
+  paper: { // "Latte"
+    label: 'Latte',
+    bg: 'bg-[#fdfbf7]', // Very light cream
+    text: 'text-[#4a4036]', // Dark brown
+    headerBg: 'bg-[#f3efe7]/90',
+    headerBorder: 'border-[#e8e2d2]',
+    cardBg: 'bg-[#ffffff]',
+    cardBorder: 'border-[#f0ece1]',
+    cardHeaderBg: 'bg-[#faf8f2]',
+    cardDivider: 'border-[#f5f1e6]',
+    secondaryBg: 'bg-[#fcfaf5]',
+    subText: 'text-[#9c9283]',
+    buttonBg: 'bg-[#f3efe7]',
+    buttonHover: 'hover:bg-[#e8e2d2]',
+    buttonText: 'text-[#857b6a]',
+    inputBg: 'bg-[#ffffff]',
+    inputBorder: 'border-[#e8e2d2]',
+    accentColor: 'orange',
+    navBg: 'bg-[#ffffff]',
+    navBorder: 'border-[#e8e2d2]',
+    activeNav: 'bg-[#cba888] text-white shadow-md shadow-orange-100', // Terracotta-ish
+    inactiveNav: 'text-[#9c9283] hover:bg-[#fcfaf5]',
+  },
+  midnight: { // "Onyx"
+    label: 'Onyx',
+    bg: 'bg-[#18181b]',
+    text: 'text-[#f4f4f5]',
+    headerBg: 'bg-[#27272a]/90',
+    headerBorder: 'border-[#3f3f46]',
+    cardBg: 'bg-[#27272a]',
+    cardBorder: 'border-[#3f3f46]',
+    cardHeaderBg: 'bg-[#3f3f46]/50',
+    cardDivider: 'border-[#3f3f46]',
+    secondaryBg: 'bg-[#3f3f46]/30',
+    subText: 'text-[#a1a1aa]',
+    buttonBg: 'bg-[#3f3f46]',
+    buttonHover: 'hover:bg-[#52525b]',
+    buttonText: 'text-[#d4d4d8]',
+    inputBg: 'bg-[#18181b]',
+    inputBorder: 'border-[#3f3f46]',
+    accentColor: 'zinc',
+    navBg: 'bg-[#18181b]',
+    navBorder: 'border-[#3f3f46]',
+    activeNav: 'bg-[#52525b] text-white shadow-md shadow-zinc-900',
+    inactiveNav: 'text-[#a1a1aa] hover:bg-[#27272a]',
+  },
+  forest: { // "Moss"
+    label: 'Moss',
+    bg: 'bg-[#f1f5f3]',
+    text: 'text-[#1c3a2f]',
+    headerBg: 'bg-[#e2eBE7]/90',
+    headerBorder: 'border-[#c6dace]',
+    cardBg: 'bg-[#ffffff]',
+    cardBorder: 'border-[#d4e5d9]',
+    cardHeaderBg: 'bg-[#e9f2ec]',
+    cardDivider: 'border-[#e0ebe4]',
+    secondaryBg: 'bg-[#f4f9f6]',
+    subText: 'text-[#5d8575]',
+    buttonBg: 'bg-[#e2ebe7]',
+    buttonHover: 'hover:bg-[#ceded6]',
+    buttonText: 'text-[#3d6657]',
+    inputBg: 'bg-[#ffffff]',
+    inputBorder: 'border-[#c6dace]',
+    accentColor: 'emerald',
+    navBg: 'bg-[#ffffff]',
+    navBorder: 'border-[#c6dace]',
+    activeNav: 'bg-[#2d5c4b] text-white shadow-md shadow-emerald-200',
+    inactiveNav: 'text-[#5d8575] hover:bg-[#f0f7f4]',
+  },
+  lavender: { // "Lilac"
+    label: 'Lilac',
+    bg: 'bg-[#f8f7fc]',
+    text: 'text-[#433b52]',
+    headerBg: 'bg-[#f0eef9]/90',
+    headerBorder: 'border-[#e1ddec]',
+    cardBg: 'bg-[#ffffff]',
+    cardBorder: 'border-[#eceaf5]',
+    cardHeaderBg: 'bg-[#f6f4fa]',
+    cardDivider: 'border-[#f0eef9]',
+    secondaryBg: 'bg-[#fbfaff]',
+    subText: 'text-[#948b9f]',
+    buttonBg: 'bg-[#f0eef9]',
+    buttonHover: 'hover:bg-[#e1ddec]',
+    buttonText: 'text-[#7e738c]',
+    inputBg: 'bg-[#ffffff]',
+    inputBorder: 'border-[#e1ddec]',
+    accentColor: 'violet',
+    navBg: 'bg-[#ffffff]',
+    navBorder: 'border-[#e1ddec]',
+    activeNav: 'bg-[#9a8cba] text-white shadow-md shadow-purple-100',
+    inactiveNav: 'text-[#948b9f] hover:bg-[#f6f4fa]',
   }
 };
 
@@ -84,18 +196,104 @@ const CopyButton = ({ text, theme }: { text: string, theme: any }) => {
   return (
     <button
       onClick={handleCopy}
-      className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-all active:scale-95 ${theme.buttonBg} ${theme.buttonHover} ${theme.buttonText}`}
+      className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-all active:scale-95 ${theme.buttonBg} ${theme.buttonHover} ${theme.buttonText} relative overflow-hidden`}
       title="Copy content"
     >
       {copied ? (
-        <>
-          <svg className="w-3.5 h-3.5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-          <span className="text-green-600">Copied</span>
-        </>
+        <div className="flex items-center gap-1.5 animate-in fade-in zoom-in duration-300">
+          <svg className="w-3.5 h-3.5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+             <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          <span className="text-green-600 font-bold">Copied</span>
+        </div>
       ) : (
-        <>
+        <div className="flex items-center gap-1.5">
           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
           <span>Copy</span>
+        </div>
+      )}
+    </button>
+  );
+};
+
+// --- NATIVE SHARE FEATURE ---
+const NativeShareButton = ({ text, title = "Shared from LazyGenie", theme }: { text: string, title?: string, theme: any }) => {
+  const handleShare = async () => {
+    const shareData = {
+      title: 'LazyGenie Insight',
+      text: text,
+      url: window.location.href
+    };
+
+    if (navigator.share && navigator.canShare(shareData)) {
+      try {
+        await navigator.share(shareData);
+      } catch (err) {
+        console.log("Share cancelled or failed", err);
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(text);
+        alert("Native sharing not supported. Content copied to clipboard!");
+      } catch (err) {
+        console.error("Copy failed", err);
+      }
+    }
+  };
+
+  return (
+    <button
+      onClick={handleShare}
+      className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-all active:scale-95 ${theme.buttonBg} ${theme.buttonHover} ${theme.buttonText}`}
+      title="Share to Social Media"
+    >
+      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+      <span>Share</span>
+    </button>
+  );
+};
+
+// --- SHARE LINK BUTTON ---
+const ShareLinkButton = ({ activeTab, result, theme }: { activeTab: ToolType, result: any, theme: any }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleShareLink = async () => {
+    try {
+      // Encode state into a safe URL-friendly string
+      const stateToShare = {
+        tab: activeTab,
+        result: result,
+        timestamp: Date.now()
+      };
+      const jsonStr = JSON.stringify(stateToShare);
+      // Use standard btoa for simplicity, user can share URL
+      const encoded = btoa(unescape(encodeURIComponent(jsonStr)));
+      const url = `${window.location.origin}${window.location.pathname}#share=${encoded}`;
+      
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to generate link", err);
+      alert("Analysis too large to share via link.");
+    }
+  };
+
+  return (
+    <button
+      onClick={handleShareLink}
+      className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-all active:scale-95 ${theme.buttonBg} ${theme.buttonHover} ${theme.buttonText}`}
+      title="Copy Link to Analysis"
+    >
+      {copied ? (
+        <span className="text-green-600 font-bold flex items-center gap-1">
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+          Link Copied
+        </span>
+      ) : (
+        <>
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" /></svg>
+          <span>Share Link</span>
         </>
       )}
     </button>
@@ -153,14 +351,14 @@ const ShareButton = ({ targetRef, theme }: { targetRef: React.RefObject<HTMLDivE
       onClick={handleShare}
       disabled={sharing}
       className={`group flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full transition-all active:scale-95 ${theme.buttonBg} ${theme.buttonHover} ${theme.buttonText}`}
-      title="Download as Image"
+      title="Save as Image"
     >
       {sharing ? (
         <svg className="animate-spin w-3.5 h-3.5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
       ) : (
         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>
       )}
-      <span>{sharing ? 'Saving...' : 'Share'}</span>
+      <span>Save Img</span>
     </button>
   );
 };
@@ -172,14 +370,16 @@ const DualLanguageBlock = ({
   contentBn, 
   isList = false,
   onPlay,
-  theme
+  theme,
+  extraHeader
 }: { 
   title: string, 
   contentEn: string | string[], 
   contentBn: string | string[], 
   isList?: boolean,
   onPlay?: (text: string) => void,
-  theme: any
+  theme: any,
+  extraHeader?: React.ReactNode
 }) => {
   const cardRef = useRef<HTMLDivElement>(null);
 
@@ -191,11 +391,17 @@ const DualLanguageBlock = ({
     return Array.isArray(content) ? content.map((item, i) => `${i + 1}. ${item}`).join('\n') : content;
   };
 
+  const fullTextForShare = `${title}\n\n🇬🇧 Original:\n${formatForCopy(contentEn)}\n\n🇧🇩 Bangla:\n${formatForCopy(contentBn)}\n\n— via LazyGenie`;
+
   return (
     <div ref={cardRef} className={`${theme.cardBg} rounded-xl shadow-sm border ${theme.cardBorder} overflow-hidden mb-6`}>
       <div className={`px-4 py-3 border-b ${theme.cardDivider} ${theme.cardHeaderBg} flex items-center justify-between`}>
-         <h3 className={`text-xs font-bold uppercase tracking-widest ${theme.subText}`}>{title}</h3>
+         <div className="flex items-center gap-2">
+           <h3 className={`text-xs font-bold uppercase tracking-widest ${theme.subText}`}>{title}</h3>
+           {extraHeader}
+         </div>
          <div className="flex gap-2">
+            <NativeShareButton text={fullTextForShare} theme={theme} />
             <ShareButton targetRef={cardRef} theme={theme} />
          </div>
       </div>
@@ -256,572 +462,670 @@ const SocialCard = ({ platform, content, color, theme }: { platform: string, con
     <div className={`p-4 rounded-xl border ${color} ${theme.cardBg} shadow-sm flex flex-col gap-3 relative`}>
       <div className="flex justify-between items-center">
         <h4 className={`text-xs font-bold uppercase tracking-wider ${theme.subText}`}>{platform}</h4>
-        <CopyButton text={content} theme={theme} />
+        <div className="flex gap-2">
+          <NativeShareButton text={content} theme={theme} />
+          <CopyButton text={content} theme={theme} />
+        </div>
       </div>
       <p className={`text-sm ${theme.text} whitespace-pre-line leading-relaxed`}>{content}</p>
     </div>
   );
 };
 
-// --- HISTORY TYPE ---
-interface HistoryItem {
-  id: number;
-  date: string;
-  tab: ToolType;
-  result: any;
-  preview: string;
+// --- RELATED TOPICS COMPONENT ---
+const RelatedTopics = ({ topics, onTopicClick, theme }: { topics: string[], onTopicClick: (topic: string) => void, theme: any }) => {
+  if (!topics || topics.length === 0) return null;
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-center gap-2 mb-3">
+        <svg className={`w-4 h-4 ${theme.subText}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+        <h3 className={`text-xs font-bold uppercase tracking-widest ${theme.subText}`}>Deep Dive Further</h3>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {topics.map((topic, index) => (
+          <button
+            key={index}
+            onClick={() => onTopicClick(topic)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium border ${theme.cardBorder} ${theme.cardBg} ${theme.text} hover:${theme.secondaryBg} hover:border-${theme.accentColor}-300 hover:text-${theme.accentColor}-600 transition-all active:scale-95 shadow-sm`}
+          >
+            {topic} ↗
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// --- ENHANCED SOURCE LIST ---
+const EnhancedSourceList = ({ sources, theme }: { sources: Source[], theme: any }) => {
+  if (!sources || sources.length === 0) return null;
+
+  // Group sources by domain
+  const groupedSources: Record<string, Source[]> = {};
+  sources.forEach(source => {
+    try {
+      const url = new URL(source.uri);
+      const domain = url.hostname.replace('www.', '');
+      if (!groupedSources[domain]) groupedSources[domain] = [];
+      groupedSources[domain].push(source);
+    } catch (e) {
+      if (!groupedSources['Other']) groupedSources['Other'] = [];
+      groupedSources['Other'].push(source);
+    }
+  });
+
+  return (
+    <div className={`${theme.cardBg} rounded-xl shadow-sm border ${theme.cardBorder} p-5 mb-6`}>
+      <div className="flex items-center gap-2 mb-4">
+         <svg className={`w-4 h-4 ${theme.subText}`} fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" /></svg>
+         <h3 className={`text-xs font-bold uppercase tracking-widest ${theme.subText}`}>Sources & Citations</h3>
+      </div>
+      <div className="grid gap-4 sm:grid-cols-2">
+        {Object.entries(groupedSources).map(([domain, items], idx) => (
+          <div key={idx} className="flex flex-col gap-2">
+            <div className={`text-[10px] font-bold uppercase ${theme.subText} opacity-70`}>{domain}</div>
+            {items.map((source, sIdx) => (
+              <a 
+                key={sIdx} 
+                href={source.uri} 
+                target="_blank" 
+                rel="noreferrer"
+                className={`flex flex-col gap-1 p-2 rounded-lg ${theme.secondaryBg} hover:opacity-80 transition-opacity text-xs border ${theme.cardDivider}`}
+              >
+                <div className={`font-medium ${theme.text} truncate`}>{source.title}</div>
+                {source.usedContent && source.usedContent.length > 0 && (
+                   <div className={`text-[10px] ${theme.subText} italic truncate`}>"{source.usedContent[0]}"</div>
+                )}
+              </a>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// --- PER-TAB STATE INTERFACE ---
+interface TabState {
+  input: string;
+  image?: string;
+  result: any | null;
+  socials: SocialPosts | null;
+  narrative: NarrativeData | null;
+  audio: string | null;
+  chatHistory: ChatMessage[];
 }
 
-const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<ToolType>(ToolType.YOUTUBE);
+const createInitialTabState = (): TabState => ({
+  input: '',
+  image: undefined,
+  result: null,
+  socials: null,
+  narrative: null,
+  audio: null,
+  chatHistory: []
+});
+
+const App = () => {
+  const [themeName, setThemeName] = useState<AppTheme>('paper');
+  const theme = THEMES[themeName];
+  
+  const [activeTab, setActiveTab] = useState<ToolType>(ToolType.SHRINKER);
+  
+  // SEPARATE STATE FOR EACH TAB
+  const [tabStates, setTabStates] = useState<Record<ToolType, TabState>>({
+    [ToolType.SHRINKER]: createInitialTabState(),
+    [ToolType.RESEARCH]: createInitialTabState(),
+    [ToolType.YOUTUBE]: createInitialTabState(),
+  });
+
   const [tone, setTone] = useState<Tone>('professional');
-  const [appTheme, setAppTheme] = useState<AppTheme>('light');
-  
-  const [input, setInput] = useState('');
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<any>(null);
-
-  // Audio State
-  const [audioBase64, setAudioBase64] = useState<string | null>(null);
-  const [isAudioLoading, setIsAudioLoading] = useState(false);
-
-  // History State
-  const [history, setHistory] = useState<HistoryItem[]>([]);
-  const [showHistory, setShowHistory] = useState(false);
-
-  // Socials State
-  const [socials, setSocials] = useState<SocialPosts | null>(null);
-  const [isSocialLoading, setIsSocialLoading] = useState(false);
-
-  // Scroll ref
-  const resultsRef = useRef<HTMLDivElement>(null);
-
-  // --- CHAT STATE ---
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+  const [narrativeLoading, setNarrativeLoading] = useState(false);
+  
+  // Chat UI state (drawer open status is global UI, but history is per tab)
+  const [chatOpen, setChatOpen] = useState(false);
   const [chatInput, setChatInput] = useState('');
-  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
 
-  // --- IMAGE HANDLING ---
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setSelectedImage(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
+  // Helper to access current tab state
+  const current = tabStates[activeTab];
+
+  // Helper to update current tab state
+  const updateCurrent = (updates: Partial<TabState>) => {
+    setTabStates(prev => ({
+      ...prev,
+      [activeTab]: { ...prev[activeTab], ...updates }
+    }));
   };
 
-  // Load History & Theme on Mount
-  useEffect(() => {
-    const savedHistory = localStorage.getItem('lazyHistory');
-    if (savedHistory) {
-      try {
-        setHistory(JSON.parse(savedHistory));
-      } catch (e) { console.error("History load failed"); }
-    }
+  const handleClear = () => {
+    updateCurrent(createInitialTabState());
+  };
 
-    const savedTheme = localStorage.getItem('lazyTheme') as AppTheme;
-    if (savedTheme && THEMES[savedTheme]) {
-      setAppTheme(savedTheme);
-    }
+  // Initial load check for share links
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      if (hash.startsWith('#share=')) {
+        try {
+          const encoded = hash.replace('#share=', '');
+          const jsonStr = decodeURIComponent(escape(atob(encoded)));
+          const sharedState = JSON.parse(jsonStr);
+          if (sharedState.tab && sharedState.result) {
+            setActiveTab(sharedState.tab);
+            // Populate the specific tab state from share link
+            setTabStates(prev => ({
+                ...prev,
+                [sharedState.tab]: {
+                    ...prev[sharedState.tab],
+                    result: sharedState.result,
+                    // If sharing result, we might not have input, so leave it or set placeholder
+                }
+            }));
+          }
+        } catch (e) {
+          console.error("Failed to parse share link", e);
+        }
+      }
+    };
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  // Save History
-  const addToHistory = (tab: ToolType, res: any, textInput: string) => {
-    const preview = textInput.slice(0, 40) + (textInput.length > 40 ? '...' : '') || "Image Analysis";
-    const newItem: HistoryItem = {
-      id: Date.now(),
-      date: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      tab,
-      result: res,
-      preview
-    };
-    const updated = [newItem, ...history].slice(0, 10); // Keep last 10
-    setHistory(updated);
-    localStorage.setItem('lazyHistory', JSON.stringify(updated));
-  };
-
-  const restoreHistory = (item: HistoryItem) => {
-    setActiveTab(item.tab);
-    setResult(item.result);
-    setAudioBase64(null);
-    setSocials(null); // Reset socials on history restore
-    setChatHistory([]);
-    setShowHistory(false);
-  };
-
-  const switchTheme = (newTheme: AppTheme) => {
-    setAppTheme(newTheme);
-    localStorage.setItem('lazyTheme', newTheme);
-  };
-
-  // Auto-scroll effect
-  useEffect(() => {
-    if (result && resultsRef.current) {
-      resultsRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      try {
+        const base64 = await enhanceImage(file);
+        updateCurrent({ image: base64 });
+      } catch (err) {
+        alert("Failed to process image");
+      }
     }
-  }, [result]);
+  };
 
-  const handleAction = async () => {
-    if (!input.trim() && !selectedImage) return;
+  const handleAnalyze = async () => {
+    if (!current.input && !current.image) return;
     setLoading(true);
-    setError(null);
-    setResult(null);
-    setAudioBase64(null);
-    setSocials(null);
-    setChatHistory([]); // Reset chat on new analysis
+    
+    // Clear previous results for this run, keep input
+    updateCurrent({ 
+        result: null, 
+        socials: null, 
+        narrative: null, 
+        audio: null, 
+        chatHistory: [] 
+    });
 
     try {
-      let res;
-      if (activeTab === ToolType.YOUTUBE) {
-        res = await generateSummary(input, tone, selectedImage || undefined);
-      } else if (activeTab === ToolType.SHRINKER) {
-        res = await shrinkContent(input, tone, selectedImage || undefined);
-      } else if (activeTab === ToolType.RESEARCH) {
-        res = await researchTopic(input, tone, selectedImage || undefined);
+      let data;
+      switch (activeTab) {
+        case ToolType.SHRINKER:
+          data = await shrinkContent(current.input, tone, current.image);
+          break;
+        case ToolType.RESEARCH:
+          data = await researchTopic(current.input, tone, current.image);
+          break;
+        case ToolType.YOUTUBE:
+          data = await generateSummary(current.input, tone, current.image);
+          break;
       }
-      
-      setResult(res);
-      addToHistory(activeTab, res, input);
-
-    } catch (err: any) {
-      console.error("Action Error:", err);
-      if (err.message && err.message.includes("API_KEY")) {
-        setError("Configuration Error: Missing API_KEY.");
-      } else {
-        setError(err.message || "Analysis interruption. Please retry.");
-      }
+      updateCurrent({ result: data });
+    } catch (e) {
+      alert((e as Error).message);
     } finally {
       setLoading(false);
     }
   };
 
-  // --- AUDIO HANDLING ---
-  const handlePlayAudio = async (text: string) => {
-    if (isAudioLoading) return;
-    setIsAudioLoading(true);
+  const handleSocials = async () => {
+    if (!current.result) return;
+    setLoading(true);
     try {
-      const base64 = await generateSpeech(text);
-      setAudioBase64(base64);
-    } catch (err) {
-      alert("Failed to generate audio. Please try again.");
+      const context = JSON.stringify(current.result);
+      const posts = await generateSocials(context, tone);
+      updateCurrent({ socials: posts });
+    } catch (e) {
+      alert("Failed to generate socials");
     } finally {
-      setIsAudioLoading(false);
+      setLoading(false);
     }
   };
 
-  // --- SOCIAL GENIE HANDLING ---
-  const handleDraftSocials = async () => {
-    if (!result) return;
-    setIsSocialLoading(true);
+  const handleNarrative = async () => {
+    if (!current.input && !current.image) return;
+    setNarrativeLoading(true);
     try {
-      const context = JSON.stringify(result);
-      const socialPack = await generateSocials(context, tone);
-      setSocials(socialPack);
-    } catch (err) {
-      alert("Failed to draft social posts.");
+      const data = await generateNarrative(current.input, tone, current.image);
+      updateCurrent({ narrative: data });
+    } catch (e) {
+      alert("Failed to generate transcript");
     } finally {
-      setIsSocialLoading(false);
+      setNarrativeLoading(false);
     }
   };
 
-  // --- CHAT HANDLING ---
+  const handleAudio = async (text: string) => {
+    try {
+      const audio = await generateSpeech(text);
+      updateCurrent({ audio });
+    } catch (e) {
+      alert("Failed to generate audio");
+    }
+  };
+
   const handleChat = async () => {
-    if (!chatInput.trim() || !result) return;
+    if (!chatInput.trim() || !current.result) return;
+    const userMsg: ChatMessage = { role: 'user', text: chatInput };
     
-    const userMsg = chatInput;
+    // Optimistic update
+    const newHistory = [...current.chatHistory, userMsg];
+    updateCurrent({ chatHistory: newHistory });
+    
     setChatInput('');
-    setChatHistory(prev => [...prev, { role: 'user', text: userMsg }]);
-    setIsChatLoading(true);
+    setChatLoading(true);
 
     try {
-      // Serialize result context
-      const contextStr = JSON.stringify(result);
-      const answer = await askGenie(chatHistory, userMsg, contextStr);
-      setChatHistory(prev => [...prev, { role: 'model', text: answer }]);
-    } catch (err) {
-      setChatHistory(prev => [...prev, { role: 'model', text: "Sorry, I couldn't answer that right now." }]);
+      const context = JSON.stringify(current.result);
+      const answer = await askGenie(newHistory, chatInput, context);
+      updateCurrent({ chatHistory: [...newHistory, { role: 'model', text: answer }] });
+    } catch (e) {
+      updateCurrent({ chatHistory: [...newHistory, { role: 'model', text: "Sorry, I encountered an error." }] });
     } finally {
-      setIsChatLoading(false);
+      setChatLoading(false);
     }
   };
 
-  // UI Helpers
-  const getTabInfo = (tab: ToolType) => {
-    switch (tab) {
-      case ToolType.YOUTUBE: return { label: 'Media Intel', icon: '▶', placeholder: 'Paste video URL, transcript, or upload visual...' };
-      case ToolType.SHRINKER: return { label: 'Briefing', icon: '⚡', placeholder: 'Paste document text or upload photo...' };
-      case ToolType.RESEARCH: return { label: 'Deep Dive', icon: '🌐', placeholder: 'Enter topic or upload image for research...' };
-    }
-  };
-  const currentTab = getTabInfo(activeTab);
-  
-  // Theme styling shorthand
-  const theme = THEMES[appTheme];
+  const tabs = [
+    { id: ToolType.SHRINKER, label: 'Executive Brief', icon: 'M13 10V3L4 14h7v7l9-11h-7z' },
+    { id: ToolType.RESEARCH, label: 'Deep Research', icon: 'M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z' },
+    { id: ToolType.YOUTUBE, label: 'Media Intel', icon: 'M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z' }
+  ];
+
+  const currentTabLabel = tabs.find(t => t.id === activeTab)?.label;
 
   return (
-    <div className={`min-h-screen ${theme.bg} transition-colors duration-300 flex flex-col max-w-md mx-auto relative shadow-2xl overflow-hidden font-['Inter',_sans-serif] ${theme.text} border-x ${theme.headerBorder}`}>
+    <div className={`flex h-screen ${theme.bg} ${theme.text} transition-colors duration-300 font-sans overflow-hidden`}>
       
-      {/* Header */}
-      <header className={`pt-6 pb-4 px-6 ${theme.headerBg} border-b ${theme.headerBorder} sticky top-0 z-20 backdrop-blur-md`}>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-full flex items-center justify-center text-2xl shadow-sm border relative ${appTheme === 'dark' ? 'bg-slate-800 border-slate-700' : 'bg-indigo-50 border-indigo-100'}`}>
-              🧞
-              {history.length > 0 && (
-                <button 
-                  onClick={() => setShowHistory(!showHistory)}
-                  className={`absolute -bottom-1 -right-1 w-5 h-5 ${appTheme === 'dark' ? 'bg-indigo-500' : 'bg-slate-800'} text-white rounded-full flex items-center justify-center text-[10px] border border-white hover:opacity-80 transition-opacity`}
-                  title="History"
-                >
-                  🕒
-                </button>
-              )}
-            </div>
-            <div>
-              <h1 className={`text-xl font-bold tracking-tight leading-none ${theme.text}`}>LazyGenie</h1>
-              <p className={`text-[10px] font-medium uppercase tracking-widest mt-1 ${theme.subText}`}>Smart. Fast. Lazy.</p>
-            </div>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            {/* Theme Toggle */}
-             <div className={`flex rounded-lg p-0.5 ${theme.buttonBg}`}>
-                <button 
-                   onClick={() => switchTheme(appTheme === 'light' ? 'dark' : appTheme === 'dark' ? 'paper' : 'light')}
-                   className={`p-1.5 rounded-md transition-all ${theme.text} hover:${theme.accentColor === 'orange' ? 'text-orange-600' : 'text-indigo-600'}`}
-                   title="Switch Theme"
-                >
-                   {appTheme === 'light' ? '☀️' : appTheme === 'dark' ? '🌙' : '📜'}
-                </button>
-             </div>
-
-            {/* Tone Toggle */}
-            <div className={`flex rounded-lg p-1 ${theme.buttonBg}`}>
-               <button 
-                 onClick={() => setTone('professional')}
-                 className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase transition-all ${tone === 'professional' ? `${theme.cardBg} shadow-sm text-${theme.accentColor}-600` : theme.subText}`}
+      {/* SIDEBAR - DESKTOP/TABLET (MD+) */}
+      <aside className={`hidden md:flex flex-col w-64 border-r ${theme.headerBorder} ${theme.cardBg} transition-colors duration-300 relative z-20`}>
+         <div className="p-6 flex items-center gap-3">
+             <div className="w-8 h-8 flex-shrink-0"><LazyGenieLogo /></div>
+             <span className="font-bold text-xl tracking-tight">LazyGenie</span>
+         </div>
+         
+         <nav className="flex-1 px-4 space-y-2 mt-2">
+            {tabs.map(tab => (
+               <button
+                 key={tab.id}
+                 onClick={() => setActiveTab(tab.id)}
+                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all ${
+                    activeTab === tab.id 
+                    ? theme.activeNav
+                    : theme.inactiveNav
+                 }`}
                >
-                 Pro
+                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} /></svg>
+                 <span className="font-medium text-sm">{tab.label}</span>
                </button>
-               <button 
-                 onClick={() => setTone('casual')}
-                 className={`px-3 py-1 rounded-md text-[10px] font-bold uppercase transition-all ${tone === 'casual' ? `${theme.cardBg} shadow-sm text-pink-500` : theme.subText}`}
-               >
-                 Fun
-               </button>
-            </div>
-          </div>
-        </div>
+            ))}
+         </nav>
 
-        {/* History Dropdown */}
-        {showHistory && (
-          <div className={`absolute top-full left-0 right-0 ${theme.cardBg} border-b ${theme.cardBorder} shadow-lg p-3 z-30 max-h-60 overflow-y-auto`}>
-             <div className="flex justify-between items-center mb-2">
-               <h3 className={`text-xs font-bold uppercase tracking-widest ${theme.subText}`}>Recent Activity</h3>
-               <button onClick={() => setShowHistory(false)} className={`${theme.subText} hover:text-red-500`}>✕</button>
-             </div>
-             {history.length === 0 && <div className={`text-sm ${theme.subText} text-center py-4`}>No history yet.</div>}
-             <div className="space-y-2">
-               {history.map(item => (
-                 <button 
-                   key={item.id} 
-                   onClick={() => restoreHistory(item)}
-                   className={`w-full text-left p-2 rounded-lg hover:${theme.secondaryBg} flex justify-between items-center group border border-transparent hover:${theme.cardBorder} transition-all`}
-                 >
-                    <div className="min-w-0">
-                       <div className={`text-[10px] font-bold text-${theme.accentColor}-500 uppercase`}>{item.tab} • {item.date}</div>
-                       <div className={`text-sm ${theme.text} truncate`}>{item.preview}</div>
-                    </div>
-                    <span className={`${theme.subText} group-hover:text-${theme.accentColor}-500`}>↩</span>
-                 </button>
-               ))}
-             </div>
-          </div>
-        )}
-      </header>
-
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto px-5 pt-6 pb-32 scroll-smooth">
-        
-        {/* Input */}
-        <div className={`${theme.inputBg} rounded-xl p-1 shadow-sm border ${theme.inputBorder} mb-6 focus-within:ring-2 focus-within:ring-${theme.accentColor}-100 transition-all group`}>
-          <div className={`px-4 py-3 border-b ${theme.inputBorder} flex justify-between items-center`}>
-            <span className={`text-xs font-semibold uppercase tracking-wider flex items-center gap-2 ${theme.subText}`}>
-              <span className={`text-${theme.accentColor}-500`}>{currentTab.icon}</span> {currentTab.label} Input
-            </span>
-            
-            {/* Lazy Vision Icon (Feature 1) */}
-            <div className="relative">
-              <input 
-                type="file" 
-                ref={fileInputRef}
-                accept="image/*"
-                className="hidden"
-                onChange={handleImageSelect}
-              />
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                className={`${theme.subText} hover:text-${theme.accentColor}-600 transition-colors`}
-                title="Upload Image"
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-              </button>
-            </div>
-          </div>
-
-          <textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={currentTab.placeholder}
-            className={`w-full h-24 p-4 text-base ${theme.text} font-medium outline-none resize-none bg-transparent placeholder-slate-400`}
-          />
-
-          {/* Image Preview */}
-          {selectedImage && (
-            <div className="px-4 pb-2 flex">
-              <div className="relative">
-                <img src={selectedImage} alt="Preview" className={`h-16 w-16 object-cover rounded-lg border ${theme.inputBorder}`} />
-                <button 
-                  onClick={() => { setSelectedImage(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
-                  className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 shadow-md hover:bg-red-600"
-                >
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="p-2">
-            <button
-              onClick={handleAction}
-              disabled={loading || (!input.trim() && !selectedImage)}
-              className={`w-full py-3 ${tone === 'casual' ? 'bg-pink-500 hover:bg-pink-600' : `bg-${theme.accentColor}-600 hover:bg-${theme.accentColor}-700`} disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-lg shadow-sm transition-all text-sm flex items-center justify-center gap-2`}
+         <div className="p-4 border-t ${theme.headerBorder} flex flex-col gap-2">
+            <label className={`text-[10px] font-bold uppercase tracking-widest ${theme.subText} px-2`}>Theme</label>
+            <select 
+              className={`text-xs w-full px-3 py-2 rounded-lg border ${theme.inputBorder} ${theme.inputBg} ${theme.text} outline-none cursor-pointer`}
+              value={themeName}
+              onChange={(e) => setThemeName(e.target.value as AppTheme)}
             >
-              {loading ? (
-                <>Processing...</>
-              ) : (
-                <>Run Analysis {tone === 'casual' ? '🚀' : ''}</>
-              )}
-            </button>
-          </div>
-        </div>
+              {Object.keys(THEMES).map(t => (
+                <option key={t} value={t}>{THEMES[t as AppTheme].label}</option>
+              ))}
+            </select>
+         </div>
+      </aside>
 
-        {/* Error */}
-        {error && (
-          <div className="mb-6 p-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded-r-lg text-sm font-medium flex items-center gap-3 shadow-sm">
-            {error}
-          </div>
-        )}
+      {/* MAIN CONTENT WRAPPER */}
+      <div className="flex-1 flex flex-col h-full relative">
 
-        {/* Loading */}
-        {loading && !result && (
-          <div className="space-y-4">
-            <div className={`h-8 ${theme.secondaryBg} rounded w-1/3 animate-pulse`}></div>
-            <div className="space-y-6">
-              <div className={`h-32 ${theme.secondaryBg} rounded-xl w-full animate-pulse`}></div>
-              <div className={`h-32 ${theme.secondaryBg} rounded-xl w-full animate-pulse`}></div>
-            </div>
-          </div>
-        )}
+        {/* MOBILE HEADER (MD-Hidden) */}
+        <header className={`md:hidden flex items-center justify-between px-4 py-3 border-b ${theme.headerBorder} ${theme.headerBg} backdrop-blur-md z-20`}>
+           <div className="flex items-center gap-3">
+              <div className="w-8 h-8"><LazyGenieLogo /></div>
+              <div>
+                 <h1 className="font-bold text-lg leading-none">LazyGenie</h1>
+                 <p className={`text-xs ${theme.subText} mt-0.5 font-medium`}>{currentTabLabel}</p>
+              </div>
+           </div>
+           <select 
+              className={`text-xs px-2 py-1 rounded-md border ${theme.inputBorder} ${theme.inputBg} ${theme.text} outline-none cursor-pointer`}
+              value={themeName}
+              onChange={(e) => setThemeName(e.target.value as AppTheme)}
+            >
+              {Object.keys(THEMES).map(t => (
+                <option key={t} value={t}>{THEMES[t as AppTheme].label}</option>
+              ))}
+            </select>
+        </header>
 
-        {/* Results */}
-        {result && (
-          <div ref={resultsRef} className="animate-in fade-in slide-in-from-bottom-2 duration-300 relative">
-            
-            {/* Audio Player Overlay */}
-            {(audioBase64 || isAudioLoading) && (
-               <div className="fixed bottom-24 left-1/2 -translate-x-1/2 z-50 w-[90%] max-w-sm animate-in fade-in slide-in-from-bottom-5">
-                 {isAudioLoading ? (
-                    <div className="bg-slate-900 text-white p-3 rounded-xl flex items-center justify-center gap-3 shadow-xl">
-                       <span className="w-2 h-2 bg-white rounded-full animate-bounce"></span>
-                       <span className="w-2 h-2 bg-white rounded-full animate-bounce delay-100"></span>
-                       <span className="w-2 h-2 bg-white rounded-full animate-bounce delay-200"></span>
-                       <span className="text-xs font-bold uppercase tracking-wider">Generating Audio...</span>
-                    </div>
-                 ) : (
-                    <AudioPlayer base64Audio={audioBase64} onFinished={() => setAudioBase64(null)} />
-                 )}
-               </div>
-            )}
-
-            {/* Media Intel Results */}
-            {activeTab === ToolType.YOUTUBE && (
-              <>
-                <DualLanguageBlock 
-                  title="Core Insight" 
-                  contentEn={(result as SummaryData).bigIdeaEn} 
-                  contentBn={(result as SummaryData).bigIdeaBn}
-                  onPlay={handlePlayAudio}
-                  theme={theme}
+        {/* SCROLLABLE CONTENT */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-8 pb-24 md:pb-8">
+           <div className="max-w-4xl mx-auto">
+              
+              {/* INPUT AREA */}
+              <div className={`${theme.cardBg} rounded-2xl shadow-sm border ${theme.cardBorder} p-2 mb-8 relative group`}>
+                <textarea
+                  className={`w-full p-4 h-32 bg-transparent resize-none outline-none ${theme.text} placeholder-slate-400`}
+                  placeholder={activeTab === ToolType.RESEARCH ? "Enter a topic to investigate..." : "Paste content, transcript, or article here..."}
+                  value={current.input}
+                  onChange={(e) => updateCurrent({ input: e.target.value })}
                 />
-                <DualLanguageBlock 
-                  title="Strategic Takeaways" 
-                  contentEn={(result as SummaryData).takeawaysEn} 
-                  contentBn={(result as SummaryData).takeawaysBn} 
-                  isList 
-                  theme={theme}
-                />
-                <DualLanguageBlock 
-                  title="Directives" 
-                  contentEn={(result as SummaryData).actionItemsEn} 
-                  contentBn={(result as SummaryData).actionItemsBn} 
-                  isList 
-                  theme={theme}
-                />
-              </>
-            )}
+                
+                {/* CLEAR BUTTON */}
+                {(current.input || current.result) && (
+                  <button 
+                    onClick={handleClear}
+                    className={`absolute top-3 right-3 p-1.5 rounded-full ${theme.buttonBg} ${theme.buttonHover} ${theme.subText} shadow-sm backdrop-blur-sm transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 active:scale-95 z-10`}
+                    title="Clear Result & Input"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
 
-            {/* Briefing Results */}
-            {activeTab === ToolType.SHRINKER && (
-               <DualLanguageBlock 
-                  title="Executive Brief" 
-                  contentEn={(result as ShrinkResult).textEn} 
-                  contentBn={(result as ShrinkResult).textBn} 
-                  onPlay={handlePlayAudio}
-                  theme={theme}
-               />
-            )}
-
-            {/* Research Results */}
-            {activeTab === ToolType.RESEARCH && (
-              <>
-                <DualLanguageBlock 
-                    title="Deep Dive Analysis" 
-                    contentEn={(result as ResearchResult).textEn} 
-                    contentBn={(result as ResearchResult).textBn} 
-                    onPlay={handlePlayAudio}
-                    theme={theme}
-                />
-
-                {(result as ResearchResult).sources?.length > 0 && (
-                  <div className={`${theme.cardHeaderBg} p-5 rounded-xl border ${theme.cardBorder} mt-6 mb-6`}>
-                    <h3 className={`${theme.subText} font-bold mb-3 flex items-center gap-2 uppercase text-[10px] tracking-widest`}>
-                      Sources
-                    </h3>
-                    <div className="flex flex-col gap-2">
-                      {(result as ResearchResult).sources.map((source, i) => (
-                         <a 
-                           key={i} 
-                           href={source.uri} 
-                           target="_blank" 
-                           rel="noopener noreferrer"
-                           className={`flex items-center gap-3 p-2 ${theme.cardBg} rounded border ${theme.cardBorder} hover:border-${theme.accentColor}-300 transition-colors group`}
-                         >
-                           <span className={`w-6 h-6 rounded bg-${theme.accentColor}-50 text-${theme.accentColor}-600 flex items-center justify-center text-xs font-bold shrink-0`}>
-                            {i+1}
-                           </span>
-                           <span className={`text-xs font-medium ${theme.subText} group-hover:text-${theme.accentColor}-600 truncate`}>{source.title}</span>
-                         </a>
-                      ))}
-                    </div>
+                {current.image && (
+                  <div className="mx-4 mb-2 relative inline-block">
+                    <img src={current.image} alt="Upload preview" className="h-16 w-16 object-cover rounded-lg border border-slate-200" />
+                    <button onClick={() => updateCurrent({ image: undefined })} className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full p-0.5">
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                    </button>
                   </div>
                 )}
-              </>
-            )}
 
-             {/* SOCIAL GENIE (Feature 7) */}
-             <div className="mt-6 mb-8">
-               {!socials && !isSocialLoading && (
-                  <button 
-                    onClick={handleDraftSocials}
-                    className={`w-full py-2.5 bg-gradient-to-r from-blue-500 to-${theme.accentColor}-600 text-white rounded-xl shadow-md text-xs font-bold uppercase tracking-widest hover:shadow-lg transition-all active:scale-95 flex items-center justify-center gap-2`}
-                  >
-                    ✨ Draft Social Pack
-                  </button>
-               )}
-
-               {isSocialLoading && (
-                  <div className={`text-center py-4 ${theme.subText} text-xs font-medium animate-pulse`}>
-                     Cooking up viral posts... 🍳
-                  </div>
-               )}
-
-               {socials && (
-                 <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2">
-                    <div className="flex items-center gap-2 mb-2">
-                       <span className="text-xl">📱</span>
-                       <h3 className={`text-xs font-bold uppercase tracking-widest ${theme.subText}`}>Social Pack</h3>
-                    </div>
-                    <SocialCard platform="LinkedIn" content={socials.linkedin} color={appTheme === 'dark' ? 'border-slate-700' : 'border-blue-200'} theme={theme} />
-                    <SocialCard platform="Twitter / X" content={socials.twitter} color={appTheme === 'dark' ? 'border-slate-700' : 'border-slate-300'} theme={theme} />
-                    <SocialCard platform="Instagram" content={socials.instagram} color={appTheme === 'dark' ? 'border-slate-700' : 'border-pink-200'} theme={theme} />
-                 </div>
-               )}
-             </div>
-
-            {/* ASK THE GENIE (Feature 3) */}
-            <div className={`border-t ${theme.cardBorder} pt-6`}>
-               <div className="flex items-center gap-2 mb-4">
-                 <div className="w-6 h-6 bg-purple-100 text-purple-600 rounded-full flex items-center justify-center text-xs">💬</div>
-                 <h3 className={`text-xs font-bold uppercase tracking-widest ${theme.subText}`}>Ask the Genie</h3>
-               </div>
-               
-               <div className="space-y-3 mb-4">
-                 {chatHistory.map((msg, i) => (
-                   <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                      <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${msg.role === 'user' ? `bg-${theme.accentColor}-600 text-white rounded-tr-none` : `${theme.cardBg} border ${theme.cardBorder} ${theme.text} rounded-tl-none`}`}>
-                        {msg.text}
+                <div className={`flex flex-wrap items-center justify-between px-4 py-3 border-t ${theme.cardDivider} gap-3`}>
+                  <div className="flex items-center gap-3 flex-wrap">
+                      <label className={`cursor-pointer p-2 rounded-full hover:${theme.secondaryBg} transition-colors group relative`} title="Upload Image">
+                        <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
+                        <svg className="w-5 h-5 text-slate-400 group-hover:text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                      </label>
+                      <div className="h-4 w-px bg-slate-200 hidden sm:block"></div>
+                      
+                      {/* TONE SELECTOR */}
+                      <div className={`flex items-center rounded-lg p-0.5 border ${theme.inputBorder} ${theme.inputBg}`}>
+                        {(['professional', 'casual', 'concise'] as Tone[]).map((t) => (
+                           <button
+                             key={t}
+                             onClick={() => setTone(t)}
+                             className={`px-3 py-1.5 rounded-md text-[10px] font-bold uppercase transition-all ${
+                               tone === t 
+                               ? `${theme.text} ${theme.secondaryBg} shadow-sm border border-slate-200/50` 
+                               : `${theme.subText} hover:bg-slate-100/50`
+                             }`}
+                           >
+                              {t === 'professional' ? 'Pro' : t === 'casual' ? 'Fun' : 'Brief'}
+                           </button>
+                        ))}
                       </div>
-                   </div>
-                 ))}
-                 {isChatLoading && (
-                    <div className="flex justify-start">
-                       <div className={`${theme.buttonBg} ${theme.subText} px-3 py-2 rounded-2xl rounded-tl-none text-xs flex gap-1 items-center`}>
-                          <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce"></span>
-                          <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-100"></span>
-                          <span className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce delay-200"></span>
-                       </div>
-                    </div>
-                 )}
-               </div>
+                  </div>
+                  <button
+                    onClick={handleAnalyze}
+                    disabled={loading || (!current.input && !current.image)}
+                    className={`px-6 py-2 rounded-xl text-sm font-semibold text-white shadow-lg shadow-indigo-500/20 active:scale-95 transition-all bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto`}
+                  >
+                    {loading ? 'Analyzing...' : 'Generate ✨'}
+                  </button>
+                </div>
+              </div>
 
-               <div className="flex gap-2">
+              {/* RESULTS AREA */}
+              {current.result && (
+                <div className="animate-in slide-in-from-bottom-4 duration-500">
+                  
+                  <div className="flex flex-wrap justify-end gap-2 mb-4">
+                    {current.audio ? (
+                      <AudioPlayer base64Audio={current.audio} onFinished={() => updateCurrent({ audio: null })} />
+                    ) : (
+                      <button onClick={() => {
+                          const textToRead = activeTab === ToolType.RESEARCH 
+                            ? (current.result as ResearchResult).textEn 
+                            : activeTab === ToolType.SHRINKER 
+                              ? (current.result as ShrinkResult).tlDrEn 
+                              : (current.result as SummaryData).bigIdeaEn;
+                          handleAudio(textToRead);
+                      }} className={`text-xs font-bold px-4 py-2 rounded-full ${theme.cardBg} border ${theme.cardBorder} shadow-sm ${theme.text} hover:${theme.secondaryBg}`}>
+                          🔊 Read Aloud
+                      </button>
+                    )}
+
+                    {/* Transcript Button for Media Intel */}
+                    {activeTab === ToolType.YOUTUBE && (
+                        <button 
+                            onClick={handleNarrative} 
+                            disabled={narrativeLoading}
+                            className={`text-xs font-bold px-4 py-2 rounded-full ${theme.cardBg} border ${theme.cardBorder} shadow-sm ${theme.text} hover:${theme.secondaryBg} flex items-center gap-2`}
+                        >
+                            {narrativeLoading ? (
+                                <>
+                                    <svg className="animate-spin w-3 h-3" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                                    <span>Writing...</span>
+                                </>
+                            ) : (
+                                <>
+                                    <span>📝</span>
+                                    <span>Transcript</span>
+                                </>
+                            )}
+                        </button>
+                    )}
+
+                    <ShareLinkButton activeTab={activeTab} result={current.result} theme={theme} />
+                    <button onClick={handleSocials} className={`text-xs font-bold px-4 py-2 rounded-full ${theme.cardBg} border ${theme.cardBorder} shadow-sm ${theme.text} hover:${theme.secondaryBg}`}>
+                      📱 Posts
+                    </button>
+                    <button onClick={() => setChatOpen(!chatOpen)} className={`text-xs font-bold px-4 py-2 rounded-full bg-indigo-600 text-white shadow-sm hover:bg-indigo-500`}>
+                      💬 Chat
+                    </button>
+                  </div>
+
+                  {/* RENDER LOGIC BASED ON TAB */}
+                  {activeTab === ToolType.SHRINKER && (
+                      <>
+                        <div className={`p-6 rounded-2xl ${theme.cardBg} border ${theme.cardBorder} shadow-sm mb-6 text-center`}>
+                          <div className="text-xs font-bold uppercase tracking-widest text-indigo-500 mb-2">The One-Line Takeaway</div>
+                          <h2 className={`text-xl font-bold ${theme.text} mb-2`}>{(current.result as ShrinkResult).tlDrEn}</h2>
+                          <p className="text-sm text-emerald-600 font-['Hind_Siliguri']">{(current.result as ShrinkResult).tlDrBn}</p>
+                          <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-medium">
+                              <span>Sentiment: {(current.result as ShrinkResult).sentiment}</span>
+                          </div>
+                        </div>
+
+                        <DualLanguageBlock 
+                          title="Executive Summary"
+                          contentEn={(current.result as ShrinkResult).textEn}
+                          contentBn={(current.result as ShrinkResult).textBn}
+                          onPlay={handleAudio}
+                          theme={theme}
+                        />
+
+                        <div className="grid md:grid-cols-2 gap-6 mb-6">
+                          <DualLanguageBlock 
+                            title="Talking Points"
+                            contentEn={(current.result as ShrinkResult).talkingPoints}
+                            contentBn={[]} // No Bangla for this prop in interface, simplified
+                            isList={true}
+                            theme={theme}
+                          />
+                           <DualLanguageBlock 
+                            title="Action Items"
+                            contentEn={(current.result as ShrinkResult).actionItemsEn}
+                            contentBn={(current.result as ShrinkResult).actionItemsBn}
+                            isList={true}
+                            theme={theme}
+                          />
+                        </div>
+
+                        <div className="mb-6">
+                          <DualLanguageBlock 
+                            title="⚠️ Potential Risks / Downsides"
+                            contentEn={(current.result as ShrinkResult).negativePointsEn || []}
+                            contentBn={(current.result as ShrinkResult).negativePointsBn || []}
+                            isList={true}
+                            theme={theme}
+                          />
+                        </div>
+                         
+                         <div className={`${theme.cardBg} rounded-xl shadow-sm border ${theme.cardBorder} p-5 mb-6`}>
+                            <h3 className={`text-xs font-bold uppercase tracking-widest ${theme.subText} mb-4`}>Devil's Advocate</h3>
+                            <p className={`text-sm ${theme.text} italic`}>"{(current.result as ShrinkResult).counterArgument}"</p>
+                          </div>
+                      </>
+                  )}
+
+                  {activeTab === ToolType.RESEARCH && (
+                    <>
+                      <EnhancedSourceList sources={(current.result as ResearchResult).sources} theme={theme} />
+                      
+                      <DualLanguageBlock 
+                          title="Research Synthesis"
+                          contentEn={(current.result as ResearchResult).textEn}
+                          contentBn={(current.result as ResearchResult).textBn}
+                          onPlay={handleAudio}
+                          theme={theme}
+                        />
+                        
+                        <RelatedTopics topics={(current.result as ResearchResult).relatedTopics || []} onTopicClick={(t) => { updateCurrent({ input: t }); handleAnalyze(); }} theme={theme} />
+                    </>
+                  )}
+
+                  {activeTab === ToolType.YOUTUBE && (
+                      <>
+                        <div className={`p-6 rounded-2xl ${theme.cardBg} border ${theme.cardBorder} shadow-sm mb-6`}>
+                          <h2 className={`text-lg font-bold ${theme.text} mb-2`}>The Big Idea</h2>
+                          <p className={`text-base ${theme.text} mb-2`}>{(current.result as SummaryData).bigIdeaEn}</p>
+                          <p className="text-sm text-emerald-600 font-['Hind_Siliguri']">{(current.result as SummaryData).bigIdeaBn}</p>
+                        </div>
+
+                        <RelatedTopics topics={(current.result as SummaryData).relatedTopics || []} onTopicClick={(t) => { updateCurrent({ input: t }); setActiveTab(ToolType.RESEARCH); handleAnalyze(); }} theme={theme} />
+
+                        <DualLanguageBlock 
+                          title="Key Takeaways"
+                          contentEn={(current.result as SummaryData).takeawaysEn}
+                          contentBn={(current.result as SummaryData).takeawaysBn}
+                          isList={true}
+                          onPlay={handleAudio}
+                          theme={theme}
+                        />
+
+                        <DualLanguageBlock 
+                          title="⚠️ Potential Risks / Downsides"
+                          contentEn={(current.result as SummaryData).negativePointsEn || []}
+                          contentBn={(current.result as SummaryData).negativePointsBn || []}
+                          isList={true}
+                          theme={theme}
+                        />
+
+                        <DualLanguageBlock 
+                          title="Action Items"
+                          contentEn={(current.result as SummaryData).actionItemsEn}
+                          contentBn={(current.result as SummaryData).actionItemsBn}
+                          isList={true}
+                          theme={theme}
+                        />
+
+                        {/* Narrative Section Result Display */}
+                        {current.narrative && (
+                        <div className="mt-6 animate-in slide-in-from-bottom-4 duration-500">
+                            <DualLanguageBlock 
+                                title="Full Transcript / Narrative" 
+                                contentEn={current.narrative.textEn} 
+                                contentBn={current.narrative.textBn}
+                                theme={theme}
+                                onPlay={handleAudio}
+                            />
+                        </div>
+                        )}
+                      </>
+                  )}
+
+                  {/* SOCIALS DISPLAY */}
+                  {current.socials && (
+                    <div className="mt-8 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in zoom-in duration-300">
+                        <SocialCard platform="LinkedIn" content={current.socials.linkedin} color="border-blue-200" theme={theme} />
+                        <SocialCard platform="Twitter" content={current.socials.twitter} color="border-sky-200" theme={theme} />
+                        <SocialCard platform="Instagram" content={current.socials.instagram} color="border-pink-200" theme={theme} />
+                        <SocialCard platform="Facebook" content={current.socials.facebook} color="border-indigo-200" theme={theme} />
+                    </div>
+                  )}
+                </div>
+              )}
+           </div>
+        </main>
+
+        {/* MOBILE BOTTOM NAV (MD-Hidden) */}
+        <nav className={`md:hidden fixed bottom-0 left-0 right-0 ${theme.navBg} border-t ${theme.headerBorder} flex justify-around items-end pb-safe pt-2 px-2 z-30 shadow-[0_-5px_10px_rgba(0,0,0,0.02)]`}>
+           {tabs.map(tab => {
+               const isActive = activeTab === tab.id;
+               return (
+                   <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`flex flex-col items-center justify-center w-full py-2 transition-all duration-300 ${isActive ? '-translate-y-1' : ''}`}
+                   >
+                      <div className={`p-2 rounded-xl transition-all duration-300 ${
+                          isActive ? theme.activeNav : 'text-slate-400 hover:bg-slate-100'
+                      }`}>
+                         <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={tab.icon} /></svg>
+                      </div>
+                      {isActive && (
+                          <span className={`text-[10px] font-bold mt-1 ${theme.subText} animate-in fade-in duration-300`}>{tab.label}</span>
+                      )}
+                   </button>
+               );
+           })}
+        </nav>
+
+        {/* CHAT DRAWER */}
+        {chatOpen && (
+          <div className={`fixed bottom-0 right-0 md:right-8 w-full md:w-96 ${theme.cardBg} shadow-2xl rounded-t-2xl border-t border-x ${theme.cardBorder} z-50 flex flex-col`} style={{ height: '500px' }}>
+            <div className={`flex items-center justify-between p-4 border-b ${theme.cardDivider}`}>
+               <h3 className={`font-bold ${theme.text}`}>Ask Genie</h3>
+               <button onClick={() => setChatOpen(false)} className={`p-1 hover:${theme.secondaryBg} rounded-full`}>
+                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+               </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+               {current.chatHistory.map((msg, i) => (
+                 <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                    <div className={`max-w-[85%] p-3 rounded-2xl text-sm ${msg.role === 'user' ? 'bg-indigo-600 text-white rounded-tr-none' : `${theme.secondaryBg} ${theme.text} rounded-tl-none`}`}>
+                       {msg.text}
+                    </div>
+                 </div>
+               ))}
+               {chatLoading && <div className="text-xs text-slate-400 animate-pulse">Genie is thinking...</div>}
+            </div>
+            <div className={`p-3 border-t ${theme.cardDivider}`}>
+               <form onSubmit={(e) => { e.preventDefault(); handleChat(); }} className="flex gap-2">
                  <input 
-                   type="text" 
+                   className={`flex-1 px-4 py-2 rounded-full border ${theme.inputBorder} ${theme.inputBg} ${theme.text} text-sm outline-none focus:ring-2 focus:ring-indigo-500/20`}
+                   placeholder="Ask a follow-up question..."
                    value={chatInput}
                    onChange={(e) => setChatInput(e.target.value)}
-                   onKeyPress={(e) => e.key === 'Enter' && handleChat()}
-                   placeholder="Ask a follow-up question..."
-                   className={`flex-1 ${theme.inputBg} border ${theme.inputBorder} ${theme.text} rounded-full px-4 py-2 text-sm focus:outline-none focus:border-${theme.accentColor}-400 placeholder-slate-400`}
                  />
-                 <button 
-                   onClick={handleChat}
-                   disabled={!chatInput.trim() || isChatLoading}
-                   className={`w-9 h-9 ${theme.subText === 'text-slate-200' ? 'bg-indigo-600' : 'bg-slate-900'} text-white rounded-full flex items-center justify-center hover:opacity-90 disabled:opacity-50`}
-                 >
-                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" /></svg>
+                 <button type="submit" disabled={!chatInput.trim() || chatLoading} className="p-2 bg-indigo-600 text-white rounded-full hover:bg-indigo-500 disabled:opacity-50">
+                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
                  </button>
-               </div>
+               </form>
             </div>
-
           </div>
         )}
-      </main>
 
-      {/* Nav */}
-      <nav className={`fixed bottom-0 left-0 right-0 ${theme.navBg} border-t ${theme.navBorder} px-2 py-2 flex justify-around safe-bottom max-w-md mx-auto z-30 shadow-[0_-5px_10px_rgba(0,0,0,0.02)]`}>
-        {[
-          { id: ToolType.YOUTUBE, label: 'Media Intel', icon: '▶' },
-          { id: ToolType.SHRINKER, label: 'Briefing', icon: '⚡' },
-          { id: ToolType.RESEARCH, label: 'Deep Dive', icon: '🌐' }
-        ].map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => { setActiveTab(tab.id as ToolType); setInput(''); setChatHistory([]); setResult(null); setError(null); }}
-            className={`flex flex-col items-center justify-center py-2 px-6 rounded-lg transition-all ${activeTab === tab.id ? `${theme.secondaryBg} text-${theme.accentColor}-600` : `${theme.subText} hover:text-slate-600`}`}
-          >
-            <span className="text-xl mb-0.5">{tab.icon}</span>
-            <span className={`text-[10px] font-bold uppercase tracking-tight ${activeTab === tab.id ? 'opacity-100' : 'opacity-70'}`}>{tab.label}</span>
-          </button>
-        ))}
-      </nav>
+      </div>
     </div>
   );
 };
